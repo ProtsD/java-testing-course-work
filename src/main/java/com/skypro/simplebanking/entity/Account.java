@@ -48,4 +48,14 @@ public class Account {
   public void setUser(User user) {
     this.user = user;
   }
+
+  @Override
+  public String toString() {
+    return "Account{" +
+            "id=" + id +
+            ", accountCurrency=" + accountCurrency +
+            ", amount=" + amount +
+            ", user=" + user +
+            '}';
+  }
 }

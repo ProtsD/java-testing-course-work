@@ -11,6 +11,7 @@ public class User {
   @Id
   @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user-generator")
   @SequenceGenerator(name = "user-generator", sequenceName = "user_sequence")
+
   private Long id;
   private String username;
   private String password;
@@ -47,5 +48,14 @@ public class User {
 
   public void setAccounts(Collection<Account> accounts) {
     this.accounts = accounts;
+  }
+
+  @Override
+  public String toString() {
+    return "User{" +
+            "id=" + id +
+            ", username='" + username + '\'' +
+            ", password='" + password + '\'' +
+            '}';
   }
 }
