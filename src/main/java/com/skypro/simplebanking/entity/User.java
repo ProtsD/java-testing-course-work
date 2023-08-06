@@ -49,13 +49,4 @@ public class User {
   public void setAccounts(Collection<Account> accounts) {
     this.accounts = accounts;
   }
-
-  @Override
-  public String toString() {
-    return "User{" +
-            "id=" + id +
-            ", username='" + username + '\'' +
-            ", password='" + password + '\'' +
-            '}';
-  }
 }
