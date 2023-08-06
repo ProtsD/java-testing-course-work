@@ -6,7 +6,9 @@ import com.skypro.simplebanking.entity.User;
 import com.skypro.simplebanking.repository.AccountRepository;
 import com.skypro.simplebanking.repository.UserRepository;
 import net.minidev.json.JSONObject;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -29,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@TestMethodOrder(MethodOrderer.MethodName.class)
 @AutoConfigureMockMvc
 @Testcontainers
 class UserControllerTest {
@@ -56,7 +59,7 @@ class UserControllerTest {
     @Test
     @Transactional
     void createUser(@Value("${app.security.admin-token}") String adminToken) throws Exception {
-        JSONObject newUserJson = d.generateNewUser();
+        JSONObject newUserJson = d.getNewUser();
 
         mockMvc.perform(post("/user")
                         .header("X-SECURITY-ADMIN-KEY", adminToken)
@@ -69,6 +72,39 @@ class UserControllerTest {
         accountRepository.findAll().forEach(System.out::println);
     }
 
+    @Test
+    @Transactional
+    void createUser_UnderNonAdminRights_Forbidden() throws Exception {
+        User randomUser = d.findRandomUser();
+        BankingUserDetails authUser = d.getAuthUser(randomUser.getId());
+
+        JSONObject newUserJson = d.getNewUser();
+
+        mockMvc.perform(post("/user")
+                        .with(user(authUser))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(newUserJson.toString()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @Transactional
+    void createUser_WhichIsAlreadyExist_BadRequest(@Value("${app.security.admin-token}") String adminToken) throws Exception {
+        User randomUser = d.findRandomUser();
+        JSONObject existingUserJson = new JSONObject();
+        existingUserJson.put("username", randomUser.getUsername());
+        existingUserJson.put("password", randomUser.getPassword());
+
+        System.out.println("==================================================================");
+        System.out.println(existingUserJson);
+        userRepository.findAll().forEach(System.out::println);
+
+        mockMvc.perform(post("/user")
+                        .header("X-SECURITY-ADMIN-KEY", adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(existingUserJson.toString()))
+                .andExpect(status().isBadRequest());
+    }
 
     @Test
     @WithMockUser
@@ -80,14 +116,29 @@ class UserControllerTest {
     }
 
     @Test
-    @WithMockUser
+    void getAllUsers_UnauthorizedRequest_Unauthorized() throws Exception {
+        mockMvc.perform(get("/user/list"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void getMyProfile() throws Exception {
-        User user = userRepository.findAll().stream().findFirst().orElseThrow();
-        BankingUserDetails authUser = new BankingUserDetails(user.getId(), user.getUsername(), user.getPassword(), false);
+        User randomUser = d.findRandomUser();
+        BankingUserDetails authUser = d.getAuthUser(randomUser.getId());
 
         mockMvc.perform(get("/user/me")
                         .with(user(authUser)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isNotEmpty());
+                .andExpectAll(
+                        status().isOk(),
+                        jsonPath("$.id").value(randomUser.getId()),
+                        jsonPath("$.username").value(randomUser.getUsername())
+                );
+    }
+
+    @Test
+    void getMyProfile_UnderAdminRights_Forbidden(@Value("${app.security.admin-token}") String adminToken) throws Exception {
+        mockMvc.perform(get("/user/me")
+                        .header("X-SECURITY-ADMIN-KEY", adminToken))
+                .andExpect(status().isForbidden());
     }
 }

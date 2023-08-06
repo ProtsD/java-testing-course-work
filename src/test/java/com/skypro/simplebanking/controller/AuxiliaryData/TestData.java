@@ -1,7 +1,6 @@
 package com.skypro.simplebanking.controller.AuxiliaryData;
 
 import com.skypro.simplebanking.dto.BankingUserDetails;
-import com.skypro.simplebanking.dto.TransferRequest;
 import com.skypro.simplebanking.entity.Account;
 import com.skypro.simplebanking.entity.AccountCurrency;
 import com.skypro.simplebanking.entity.User;
@@ -13,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.Collectors;
@@ -22,6 +22,7 @@ public class TestData {
     private final UserRepository userRepository;
     private final AccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final Random random = new Random();
 
     public TestData(
             UserRepository userRepository,
@@ -64,47 +65,55 @@ public class TestData {
         }
     }
 
-    public JSONObject generateNewUser() {
+    public JSONObject getNewUser() {
         long UserNumber = userRepository.findAll().stream()
-                .sorted((e1, e2) -> e2.getId().compareTo(e1.getId()))
-                .findFirst()
+                .min((e1, e2) -> e2.getId().compareTo(e1.getId()))
                 .orElseThrow()
                 .getId()
                 + 1L;
-
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("username", "User_" + UserNumber);
         jsonObject.put("password", "User_" + UserNumber + "_password");
         return jsonObject;
     }
 
-    public Account findRandomAccount() {
-        Random random = new Random();
-        List<Account> accounts = accountRepository.findAll();
-        return accounts.get(random.nextInt(accounts.size()));
+    public JSONObject getTransferRequest(Account account1, Account account2) {
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("fromAccountId", account1.getId());
+        jsonObject.put("toAccountId", account2.getId());
+        jsonObject.put("toUserId", account2.getUser().getId());
+        jsonObject.put("amount", account1.getAmount() / 2);
+        return jsonObject;
     }
 
-    public List<Account> findTwoRandomAccounts() {
-        Random random = new Random();
+    public Account findRandomAccountButExclude(Account... accounts) {
+        List<Account> inputAccounts = Arrays.stream(accounts).toList();
+        List<Account> dbAccounts = accountRepository.findAll();
+        if (inputAccounts.size() > 0) {
+            dbAccounts = dbAccounts.stream()
+                    .filter(e -> !inputAccounts.contains(e))
+                    .filter(e -> e.getAccountCurrency().equals(inputAccounts.get(0).getAccountCurrency()))
+                    .toList();
+        }
+        return dbAccounts.get(random.nextInt(dbAccounts.size()));
+    }
+
+    public User findRandomUser() {
+        List<User> users = userRepository.findAll();
+        return users.get(random.nextInt(users.size()));
+    }
+
+    public List<Account> findTwoRandomAccountsWithDifferentCurrency() {
         List<Account> randomAccounts = new ArrayList<>();
         List<Account> accounts = accountRepository.findAll();
         randomAccounts.add(accounts.get(random.nextInt(accounts.size())));
         accounts = accounts
                 .stream()
                 .filter(e -> !e.equals(randomAccounts.get(0)))
-                .filter(e -> e.getAccountCurrency().equals(randomAccounts.get(0).getAccountCurrency()))
+                .filter(e -> !e.getAccountCurrency().equals(randomAccounts.get(0).getAccountCurrency()))
                 .collect(Collectors.toList());
         randomAccounts.add(accounts.get(random.nextInt(accounts.size())));
         return randomAccounts;
-    }
-
-    public TransferRequest createTransferRequest(Account account1, Account account2) {
-        TransferRequest transferRequest = new TransferRequest();
-        transferRequest.setFromAccountId(account1.getId());
-        transferRequest.setToAccountId(account2.getId());
-        transferRequest.setToUserId(account2.getUser().getId());
-        transferRequest.setAmount(account1.getAmount() / 2);
-        return transferRequest;
     }
 
     public BankingUserDetails getAuthUser(long id) {

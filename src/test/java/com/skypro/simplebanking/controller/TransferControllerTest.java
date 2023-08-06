@@ -1,7 +1,6 @@
 package com.skypro.simplebanking.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.skypro.simplebanking.controller.AuxiliaryData.TestData;
 import com.skypro.simplebanking.dto.BankingUserDetails;
 import com.skypro.simplebanking.dto.TransferRequest;
@@ -9,7 +8,10 @@ import com.skypro.simplebanking.entity.Account;
 import com.skypro.simplebanking.entity.User;
 import com.skypro.simplebanking.repository.AccountRepository;
 import com.skypro.simplebanking.repository.UserRepository;
+import net.minidev.json.JSONObject;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,16 +23,17 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.validation.constraints.AssertTrue;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 
 @SpringBootTest
+@TestMethodOrder(MethodOrderer.MethodName.class)
 @AutoConfigureMockMvc
 @Testcontainers
 class TransferControllerTest {
@@ -59,20 +62,125 @@ class TransferControllerTest {
 
     @Test
     void transfer() throws Exception {
-        List<Account> twoRandomAccounts = d.findTwoRandomAccounts();
-        TransferRequest transferRequest = d.createTransferRequest(twoRandomAccounts.get(0), twoRandomAccounts.get(1));
-        String json = objectMapper.writer().withDefaultPrettyPrinter().writeValueAsString(transferRequest);
+        Account sourceAccount = d.findRandomAccountButExclude();
+        Account destinationAccount = d.findRandomAccountButExclude(sourceAccount);
 
-        User user = userRepository.findById(twoRandomAccounts.get(0).getUser().getId()).orElseThrow();
-        BankingUserDetails authUser = new BankingUserDetails(user.getId(), user.getUsername(), user.getPassword(), false);
+        JSONObject transferRequest = d.getTransferRequest(sourceAccount, destinationAccount);
+        BankingUserDetails authUser = d.getAuthUser(sourceAccount.getUser().getId());
 
         mockMvc.perform(post("/transfer")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json)
+                        .content(transferRequest.toString())
                         .with(user(authUser)))
                 .andExpect(status().isOk());
 
-        assertEquals(transferRequest.getAmount(), twoRandomAccounts.get(0).getAmount() - accountRepository.findById(twoRandomAccounts.get(0).getId()).orElseThrow().getAmount());
-        assertEquals(transferRequest.getAmount(), accountRepository.findById(twoRandomAccounts.get(1).getId()).orElseThrow().getAmount() - twoRandomAccounts.get(1).getAmount());
+        assertEquals(transferRequest.getAsNumber("amount"), sourceAccount.getAmount() - accountRepository.findById(sourceAccount.getId()).orElseThrow().getAmount());
+        assertEquals(transferRequest.getAsNumber("amount"), accountRepository.findById(destinationAccount.getId()).orElseThrow().getAmount() - destinationAccount.getAmount());
+    }
+
+    @Test
+    void transfer_NotEnoughFunds_BadRequest() throws Exception {
+        Account sourceAccount = d.findRandomAccountButExclude();
+        Account destinationAccount = d.findRandomAccountButExclude(sourceAccount);
+
+        JSONObject transferRequest = d.getTransferRequest(sourceAccount, destinationAccount);
+        transferRequest.put("amount", (long)transferRequest.getAsNumber("amount") * 3);
+        BankingUserDetails authUser = d.getAuthUser(sourceAccount.getUser().getId());
+
+        String expectedErrorMessage = "Cannot withdraw " + transferRequest.getAsNumber("amount") + " " + sourceAccount.getAccountCurrency().name();
+        mockMvc.perform(post("/transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(transferRequest.toString())
+                        .with(user(authUser)))
+                .andExpectAll(
+                        status().isBadRequest(),
+                        jsonPath("$").value(expectedErrorMessage));
+    }
+
+    @Test
+    void transfer_NegativeAmount_BadRequest() throws Exception {
+        Account sourceAccount = d.findRandomAccountButExclude();
+        Account destinationAccount = d.findRandomAccountButExclude(sourceAccount);
+
+        JSONObject transferRequest = d.getTransferRequest(sourceAccount, destinationAccount);
+        transferRequest.put("amount", (long)transferRequest.getAsNumber("amount") * (-1));
+        BankingUserDetails authUser = d.getAuthUser(sourceAccount.getUser().getId());
+
+        String expectedErrorMessage = "Amount should be more than 0";
+        mockMvc.perform(post("/transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(transferRequest.toString())
+                        .with(user(authUser)))
+                .andExpectAll(
+                        status().isBadRequest(),
+                        jsonPath("$").value(expectedErrorMessage));
+    }
+
+    @Test
+    void transfer_CurrencyMismatch_BadRequest() throws Exception {
+        List<Account> twoRandomAccounts = d.findTwoRandomAccountsWithDifferentCurrency();
+
+        JSONObject transferRequest = d.getTransferRequest(twoRandomAccounts.get(0), twoRandomAccounts.get(1));
+        BankingUserDetails authUser = d.getAuthUser(twoRandomAccounts.get(0).getUser().getId());
+
+        String expectedErrorMessage = "Account currencies should be same";
+        mockMvc.perform(post("/transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(transferRequest.toString())
+                        .with(user(authUser)))
+                .andExpectAll(
+                        status().isBadRequest(),
+                        jsonPath("$").value(expectedErrorMessage));
+    }
+
+    @Test
+    void transfer_UserIdAccountIdMismatch_AccountNotFound() throws Exception {
+        Account sourceAccount = d.findRandomAccountButExclude();
+        Account destinationAccount = d.findRandomAccountButExclude(sourceAccount);
+        Account userProviderAccount = d.findRandomAccountButExclude(sourceAccount, destinationAccount);
+        destinationAccount.setUser(userProviderAccount.getUser());
+
+        JSONObject transferRequest = d.getTransferRequest(sourceAccount, destinationAccount);
+        BankingUserDetails authUser = d.getAuthUser(sourceAccount.getUser().getId());
+
+        mockMvc.perform(post("/transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(transferRequest.toString())
+                        .with(user(authUser)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void transfer_WrongPairUserIdAndAccountId_WithdrawPart_AccountNotFound() throws Exception {
+        Account sourceAccount = d.findRandomAccountButExclude();
+        Account destinationAccount = d.findRandomAccountButExclude(sourceAccount);
+        Account idProviderAccount = d.findRandomAccountButExclude(sourceAccount, destinationAccount);
+        sourceAccount.setId(idProviderAccount.getId());
+
+        JSONObject transferRequest = d.getTransferRequest(sourceAccount, destinationAccount);
+        BankingUserDetails authUser = d.getAuthUser(sourceAccount.getUser().getId());
+
+        mockMvc.perform(post("/transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(transferRequest.toString())
+                        .with(user(authUser)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void transfer_WrongPairUserIdAndAccountId_DepositPart_AccountNotFound() throws Exception {
+        Account sourceAccount = d.findRandomAccountButExclude();
+        Account destinationAccount = d.findRandomAccountButExclude(sourceAccount);
+        Account idProviderAccount = d.findRandomAccountButExclude(sourceAccount, destinationAccount);
+        destinationAccount.setId(idProviderAccount.getId());
+
+        JSONObject transferRequest = d.getTransferRequest(sourceAccount, destinationAccount);
+        BankingUserDetails authUser = d.getAuthUser(sourceAccount.getUser().getId());
+
+        mockMvc.perform(post("/transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(transferRequest.toString())
+                        .with(user(authUser)))
+                .andExpect(status().isNotFound());
     }
 }
