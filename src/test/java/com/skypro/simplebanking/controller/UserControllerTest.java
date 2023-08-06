@@ -61,7 +61,7 @@ class UserControllerTest {
     void createUser(@Value("${app.security.admin-token}") String adminToken) throws Exception {
         JSONObject newUserJson = d.getNewUser();
 
-        mockMvc.perform(post("/user")
+        mockMvc.perform(post("/user/")
                         .header("X-SECURITY-ADMIN-KEY", adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(newUserJson.toString()))
@@ -73,14 +73,13 @@ class UserControllerTest {
     }
 
     @Test
-    @Transactional
     void createUser_UnderNonAdminRights_Forbidden() throws Exception {
         User randomUser = d.findRandomUser();
         BankingUserDetails authUser = d.getAuthUser(randomUser.getId());
 
         JSONObject newUserJson = d.getNewUser();
 
-        mockMvc.perform(post("/user")
+        mockMvc.perform(post("/user/")
                         .with(user(authUser))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(newUserJson.toString()))
@@ -93,13 +92,9 @@ class UserControllerTest {
         User randomUser = d.findRandomUser();
         JSONObject existingUserJson = new JSONObject();
         existingUserJson.put("username", randomUser.getUsername());
-        existingUserJson.put("password", randomUser.getPassword());
+        existingUserJson.put("password", randomUser.getPassword());;
 
-        System.out.println("==================================================================");
-        System.out.println(existingUserJson);
-        userRepository.findAll().forEach(System.out::println);
-
-        mockMvc.perform(post("/user")
+        mockMvc.perform(post("/user/")
                         .header("X-SECURITY-ADMIN-KEY", adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(existingUserJson.toString()))

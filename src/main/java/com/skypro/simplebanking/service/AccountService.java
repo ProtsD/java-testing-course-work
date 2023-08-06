@@ -56,8 +56,6 @@ public class AccountService {
 
   @Transactional
   public AccountDTO depositToAccount(long userId, Long accountId, long amount) {
-    System.out.println("***depositToAccount********************************************************************");
-    System.out.println("***" + userId + "***" + accountId + "***" + amount + "***");
     if (amount < 0) {
       throw new InvalidAmountException();
     }
@@ -71,8 +69,6 @@ public class AccountService {
 
   @Transactional
   public AccountDTO withdrawFromAccount(long id, Long accountId, long amount) {
-    System.out.println("***withdrawFromAccount********************************************************************");
-    System.out.println("***" + id + "***" + accountId + "***" + amount + "***");
     if (amount < 0) {
       throw new InvalidAmountException();
     }
